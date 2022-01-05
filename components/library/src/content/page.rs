@@ -17,9 +17,10 @@ use utils::slugs::slugify_paths;
 use utils::templates::{render_template, ShortcodeDefinition};
 
 use crate::content::file_info::FileInfo;
+use crate::content::find_related_assets;
 use crate::content::ser::SerializingPage;
-use crate::content::{find_related_assets, has_anchor};
 use utils::fs::read_file;
+use utils::site::check_page_for_anchor;
 
 lazy_static! {
     // Based on https://regex101.com/r/H2n38Z/1/tests
@@ -297,7 +298,12 @@ impl Page {
     }
 
     pub fn has_anchor(&self, anchor: &str) -> bool {
-        has_anchor(&self.toc, anchor)
+        match check_page_for_anchor(anchor, &self.content) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+        // println!("page.has_anchor | ANCHOR: {} | URL: {} | {:?}", anchor, self.path, foo);
+        // has_anchor(&self.toc, anchor)
     }
 
     pub fn to_serialized<'a>(&'a self, library: &'a Library) -> SerializingPage<'a> {

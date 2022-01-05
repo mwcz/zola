@@ -7,6 +7,7 @@ use config::LinkChecker;
 use std::collections::HashMap;
 use std::result;
 use std::sync::{Arc, RwLock};
+use utils::site::check_page_for_anchor;
 
 pub type Result = result::Result<StatusCode, String>;
 
@@ -60,7 +61,7 @@ pub fn check_url(url: &str, config: &LinkChecker) -> Result {
                 }
             };
 
-            match check_page_for_anchor(url, body) {
+            match check_page_for_anchor(url, &body) {
                 Ok(_) => Ok(response.status()),
                 Err(e) => Err(e.to_string()),
             }
@@ -101,38 +102,12 @@ fn has_anchor(url: &str) -> bool {
     }
 }
 
-fn check_page_for_anchor(url: &str, body: String) -> errors::Result<()> {
-    let index = url.find('#').unwrap();
-    let anchor = url.get(index + 1..).unwrap();
-    let checks = [
-        format!(" id={}", anchor),
-        format!(" ID={}", anchor),
-        format!(" id='{}'", anchor),
-        format!(" ID='{}'", anchor),
-        format!(r#" id="{}""#, anchor),
-        format!(r#" ID="{}""#, anchor),
-        format!(" name={}", anchor),
-        format!(" NAME={}", anchor),
-        format!(" name='{}'", anchor),
-        format!(" NAME='{}'", anchor),
-        format!(r#" name="{}""#, anchor),
-        format!(r#" NAME="{}""#, anchor),
-    ];
-
-    if checks.iter().any(|check| body[..].contains(&check[..])) {
-        Ok(())
-    } else {
-        Err(errors::Error::from(format!("Anchor `#{}` not found on page", anchor)))
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        check_page_for_anchor, check_url, has_anchor, is_valid, message, LinkChecker, LINKS,
-    };
+    use super::{check_url, has_anchor, is_valid, message, LinkChecker, LINKS};
     use mockito::mock;
     use reqwest::StatusCode;
+    use utils::site::check_page_for_anchor;
 
     // NOTE: HTTP mock paths below are randomly generated to avoid name
     // collisions. Mocks with the same path can sometimes bleed between tests
@@ -260,55 +235,6 @@ mod tests {
         assert!(res.is_err());
         assert!(message(&res)
             .starts_with("error sending request for url (https://t6l5cn9lpm.lxizfnzckd/)"));
-    }
-
-    #[test]
-    fn can_validate_anchors_with_double_quotes() {
-        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect";
-        let body = r#"<body><h3 id="method.collect">collect</h3></body>"#.to_string();
-        let res = check_page_for_anchor(url, body);
-        assert!(res.is_ok());
-    }
-
-    // https://github.com/getzola/zola/issues/948
-    #[test]
-    fn can_validate_anchors_in_capital() {
-        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect";
-        let body = r#"<body><h3 ID="method.collect">collect</h3></body>"#.to_string();
-        let res = check_page_for_anchor(url, body);
-        assert!(res.is_ok());
-    }
-
-    #[test]
-    fn can_validate_anchors_with_single_quotes() {
-        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect";
-        let body = "<body><h3 id='method.collect'>collect</h3></body>".to_string();
-        let res = check_page_for_anchor(url, body);
-        assert!(res.is_ok());
-    }
-
-    #[test]
-    fn can_validate_anchors_without_quotes() {
-        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect";
-        let body = "<body><h3 id=method.collect>collect</h3></body>".to_string();
-        let res = check_page_for_anchor(url, body);
-        assert!(res.is_ok());
-    }
-
-    #[test]
-    fn can_validate_anchors_with_name_attr() {
-        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect";
-        let body = r#"<body><h3 name="method.collect">collect</h3></body>"#.to_string();
-        let res = check_page_for_anchor(url, body);
-        assert!(res.is_ok());
-    }
-
-    #[test]
-    fn can_fail_when_anchor_not_found() {
-        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#me";
-        let body = r#"<body><h3 id="method.collect">collect</h3></body>"#.to_string();
-        let res = check_page_for_anchor(url, body);
-        assert!(res.is_err());
     }
 
     #[test]

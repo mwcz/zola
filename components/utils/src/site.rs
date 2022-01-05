@@ -14,6 +14,35 @@ pub fn get_reading_analytics(content: &str) -> (usize, usize) {
     (word_count, ((word_count + 199) / 200))
 }
 
+pub fn check_page_for_anchor(url: &str, body: &String) -> errors::Result<()> {
+    // find the #, or if there's no #, assume `url` is the anchor name without preceeding #
+    let index = match url.find('#') {
+        Some(i) => i,
+        None => 0,
+    };
+    let anchor = url.get(index + 1..).unwrap();
+    let checks = [
+        format!(" id={}", anchor),
+        format!(" ID={}", anchor),
+        format!(" id='{}'", anchor),
+        format!(" ID='{}'", anchor),
+        format!(r#" id="{}""#, anchor),
+        format!(r#" ID="{}""#, anchor),
+        format!(" name={}", anchor),
+        format!(" NAME={}", anchor),
+        format!(" name='{}'", anchor),
+        format!(" NAME='{}'", anchor),
+        format!(r#" name="{}""#, anchor),
+        format!(r#" NAME="{}""#, anchor),
+    ];
+
+    if checks.iter().any(|check| body[..].contains(&check[..])) {
+        Ok(())
+    } else {
+        Err(errors::Error::from(format!("Anchor `#{}` not found on page", anchor)))
+    }
+}
+
 /// Result of a successful resolution of an internal link.
 #[derive(Debug, PartialEq, Clone)]
 pub struct ResolvedInternalLink {
@@ -57,7 +86,7 @@ pub fn resolve_internal_link<S: BuildHasher>(
 mod tests {
     use std::collections::HashMap;
 
-    use super::{get_reading_analytics, resolve_internal_link};
+    use super::{check_page_for_anchor, get_reading_analytics, resolve_internal_link};
 
     #[test]
     fn can_resolve_valid_internal_link() {
@@ -127,5 +156,54 @@ mod tests {
         let (word_count, reading_time) = get_reading_analytics(&content);
         assert_eq!(word_count, 2000);
         assert_eq!(reading_time, 10);
+    }
+
+    #[test]
+    fn can_validate_anchors_with_double_quotes() {
+        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect";
+        let body = r#"<body><h3 id="method.collect">collect</h3></body>"#.to_string();
+        let res = check_page_for_anchor(url, &body);
+        assert!(res.is_ok());
+    }
+
+    // https://github.com/getzola/zola/issues/948
+    #[test]
+    fn can_validate_anchors_in_capital() {
+        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect";
+        let body = r#"<body><h3 ID="method.collect">collect</h3></body>"#.to_string();
+        let res = check_page_for_anchor(url, &body);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn can_validate_anchors_with_single_quotes() {
+        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect";
+        let body = "<body><h3 id='method.collect'>collect</h3></body>".to_string();
+        let res = check_page_for_anchor(url, &body);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn can_validate_anchors_without_quotes() {
+        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect";
+        let body = "<body><h3 id=method.collect>collect</h3></body>".to_string();
+        let res = check_page_for_anchor(url, &body);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn can_validate_anchors_with_name_attr() {
+        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect";
+        let body = r#"<body><h3 name="method.collect">collect</h3></body>"#.to_string();
+        let res = check_page_for_anchor(url, &body);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn can_fail_when_anchor_not_found() {
+        let url = "https://doc.rust-lang.org/std/iter/trait.Iterator.html#me";
+        let body = r#"<body><h3 id="method.collect">collect</h3></body>"#.to_string();
+        let res = check_page_for_anchor(url, &body);
+        assert!(res.is_err());
     }
 }

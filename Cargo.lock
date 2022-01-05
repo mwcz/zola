@@ -1367,6 +1367,7 @@ dependencies = [
  "lazy_static",
  "mockito",
  "reqwest",
+ "utils",
 ]
 
 [[package]]
