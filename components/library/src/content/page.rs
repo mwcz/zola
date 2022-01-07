@@ -298,12 +298,7 @@ impl Page {
     }
 
     pub fn has_anchor(&self, anchor: &str) -> bool {
-        match check_page_for_anchor(anchor, &self.content) {
-            Ok(_) => true,
-            Err(_) => false,
-        }
-        // println!("page.has_anchor | ANCHOR: {} | URL: {} | {:?}", anchor, self.path, foo);
-        // has_anchor(&self.toc, anchor)
+        check_page_for_anchor(anchor, &self.content).is_ok()
     }
 
     pub fn to_serialized<'a>(&'a self, library: &'a Library) -> SerializingPage<'a> {
