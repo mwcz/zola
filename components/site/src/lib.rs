@@ -9,7 +9,6 @@ use std::fs::remove_dir_all;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
-// use lazy_static::lazy_static;
 use libs::once_cell::sync::Lazy;
 use libs::rayon::prelude::*;
 use libs::tera::{Context, Tera};

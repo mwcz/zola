@@ -358,8 +358,8 @@ name = "config"
 version = "0.1.0"
 dependencies = [
  "errors",
- "lazy_static",
  "libs",
+ "once_cell",
  "serde",
  "utils",
 ]
@@ -3663,7 +3663,6 @@ dependencies = [
  "errors",
  "front_matter",
  "hyper",
- "lazy_static",
  "libs",
  "mime_guess",
  "notify",
