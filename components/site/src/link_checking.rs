@@ -1,6 +1,7 @@
 use core::time;
 use std::{collections::HashMap, path::PathBuf, thread};
 
+use config::{Config, LinkChecker, LinkCheckerLevel};
 use libs::rayon::prelude::*;
 
 use crate::{anyhow, Site};
@@ -100,13 +101,13 @@ fn should_skip_by_prefix(link: &String, skip_prefixes: &Vec<String>) -> bool {
     skip_prefixes.iter().any(|prefix| link.starts_with(prefix))
 }
 
-fn get_link_domain(link: &str) -> Result<String> {
+fn get_link_domain(link: &str) -> Result<String, String> {
     return match Url::parse(link) {
         Ok(url) => match url.host_str().map(String::from) {
             Some(domain_str) => Ok(domain_str),
-            None => bail!("could not parse domain `{}` from link", link),
+            None => Err(format!("could not parse domain `{}` from link", link)),
         },
-        Err(err) => bail!("could not parse domain `{}` from link: `{}`", link, err),
+        Err(err) => Err(format!("could not parse domain `{}` from link: `{}`", link, err)),
     };
 }
 
@@ -116,11 +117,15 @@ pub fn check_external_links(site: &Site) -> Result<()> {
     struct LinkDef {
         file_path: PathBuf,
         external_link: String,
-        domain: String,
+        domain: Result<String, String>,
     }
 
     impl LinkDef {
-        pub fn new(file_path: PathBuf, external_link: String, domain: String) -> Self {
+        pub fn new(
+            file_path: PathBuf,
+            external_link: String,
+            domain: Result<String, String>,
+        ) -> Self {
             Self { file_path, external_link, domain }
         }
     }
@@ -133,7 +138,7 @@ pub fn check_external_links(site: &Site) -> Result<()> {
             if should_skip_by_prefix(&external_link, &site.config.link_checker.skip_prefixes) {
                 skipped_link_count += 1;
             } else {
-                let domain = get_link_domain(&external_link)?;
+                let domain = get_link_domain(&external_link);
                 checked_links.push(LinkDef::new(p.file.path.clone(), external_link, domain));
             }
         }
@@ -144,90 +149,107 @@ pub fn check_external_links(site: &Site) -> Result<()> {
             if should_skip_by_prefix(&external_link, &site.config.link_checker.skip_prefixes) {
                 skipped_link_count += 1;
             } else {
-                let domain = get_link_domain(&external_link)?;
+                let domain = get_link_domain(&external_link);
                 checked_links.push(LinkDef::new(s.file.path.clone(), external_link, domain));
             }
         }
     }
 
-    println!(
-        "Checking {} external link(s).  Skipping {} external link(s).",
-        checked_links.len(),
-        skipped_link_count
-    );
-
-    let mut links_by_domain: HashMap<String, Vec<&LinkDef>> = HashMap::new();
-
-    for link in checked_links.iter() {
-        links_by_domain.entry(link.domain.to_string()).or_default();
-        // Insert content path and link under the domain key
-        links_by_domain.get_mut(&link.domain).unwrap().push(&link);
-    }
-
-    if checked_links.is_empty() {
-        return Ok(());
-    }
-
-    // create thread pool with lots of threads so we can fetch
-    // (almost) all pages simultaneously, limiting all links for a single
-    // domain to one thread to avoid rate-limiting
-    let threads = std::cmp::min(links_by_domain.len(), 8);
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build()?;
-
-    let errors = pool.install(|| {
-        links_by_domain
-            .par_iter()
-            .map(|(_domain, links)| {
-                let mut links_to_process = links.len();
-                links
-                    .iter()
-                    .filter_map(move |link_def| {
-                        links_to_process -= 1;
-
-                        let res = link_checker::check_url(
-                            &link_def.external_link,
-                            &site.config.link_checker,
-                        );
-
-                        if links_to_process > 0 {
-                            // Prevent rate-limiting, wait before next crawl unless we're done with this domain
-                            thread::sleep(time::Duration::from_millis(500));
-                        }
-
-                        if link_checker::is_valid(&res) {
-                            None
-                        } else {
-                            Some((&link_def.file_path, &link_def.external_link, res))
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .flatten()
-            .collect::<Vec<_>>()
-    });
-
-    println!(
-        "> Checked {} external link(s): {} error(s) found.",
-        checked_links.len(),
-        errors.len()
-    );
-
-    if errors.is_empty() {
-        return Ok(());
-    }
-
-    let msg = errors
-        .into_iter()
-        .map(|(page_path, link, check_res)| {
-            format!(
-                "Dead link in {} to {}: {}",
-                page_path.to_string_lossy(),
-                link,
-                link_checker::message(&check_res)
-            )
+    // get any domains that failed to parse and log them at the configured log level
+    let invalid_domain_errs: Vec<_> = checked_links
+        .iter()
+        .filter_map(|link: &LinkDef| match &link.domain {
+            // filter out the Ok and keep the Errs
+            Ok(_) => None,
+            Err(msg) => Some(msg.clone()),
         })
-        .collect::<Vec<_>>()
-        .join("\n");
+        .collect();
+    let invalid_domain_errs = anyhow!(invalid_domain_errs.join("\n"));
 
-    Err(anyhow!(msg))
+    match site.config.link_checker.external_level {
+        LinkCheckerLevel::ErrorLevel => bail!("{}", invalid_domain_errs),
+        LinkCheckerLevel::WarnLevel => eprintln!("Warning: {}", invalid_domain_errs),
+    }
+
+    // println!(
+    //     "Checking {} external link(s).  Skipping {} external link(s).",
+    //     checked_links.len(),
+    //     skipped_link_count
+    // );
+
+    // let mut links_by_domain: HashMap<String, Vec<&LinkDef>> = HashMap::new();
+
+    // for link in checked_links.iter() {
+    //     links_by_domain.entry(link.domain.to_string()).or_default();
+    //     // Insert content path and link under the domain key
+    //     links_by_domain.get_mut(&link.domain).unwrap().push(&link);
+    // }
+
+    // if checked_links.is_empty() {
+    //     return Ok(());
+    // }
+
+    // // create thread pool with lots of threads so we can fetch
+    // // (almost) all pages simultaneously, limiting all links for a single
+    // // domain to one thread to avoid rate-limiting
+    // let threads = std::cmp::min(links_by_domain.len(), 8);
+    // let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build()?;
+
+    // let errors = pool.install(|| {
+    //     links_by_domain
+    //         .par_iter()
+    //         .map(|(_domain, links)| {
+    //             let mut links_to_process = links.len();
+    //             links
+    //                 .iter()
+    //                 .filter_map(move |link_def| {
+    //                     links_to_process -= 1;
+
+    //                     let res = link_checker::check_url(
+    //                         &link_def.external_link,
+    //                         &site.config.link_checker,
+    //                     );
+
+    //                     if links_to_process > 0 {
+    //                         // Prevent rate-limiting, wait before next crawl unless we're done with this domain
+    //                         thread::sleep(time::Duration::from_millis(500));
+    //                     }
+
+    //                     if link_checker::is_valid(&res) {
+    //                         None
+    //                     } else {
+    //                         Some((&link_def.file_path, &link_def.external_link, res))
+    //                     }
+    //                 })
+    //                 .collect::<Vec<_>>()
+    //         })
+    //         .flatten()
+    //         .collect::<Vec<_>>()
+    // });
+
+    // println!(
+    //     "> Checked {} external link(s): {} error(s) found.",
+    //     checked_links.len(),
+    //     errors.len()
+    // );
+
+    // if errors.is_empty() {
+    //     return Ok(());
+    // }
+
+    // let msg = errors
+    //     .into_iter()
+    //     .map(|(page_path, link, check_res)| {
+    //         format!(
+    //             "Dead link in {} to {}: {}",
+    //             page_path.to_string_lossy(),
+    //             link,
+    //             link_checker::message(&check_res)
+    //         )
+    //     })
+    //     .collect::<Vec<_>>()
+    //     .join("\n");
+
+    // Err(anyhow!(msg))
+    Err(anyhow!(""))
 }
