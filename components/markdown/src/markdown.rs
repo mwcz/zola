@@ -123,17 +123,17 @@ fn fix_link(
                 match context.config.link_checker.internal_level {
                     config::LinkCheckerLevel::ErrorLevel => {
                         return Err(anyhow!(
-                            "Relative link {} not found. In page: {}",
+                            "Dead relative link in {} to {}",
+                            context.current_page_path.unwrap_or("unknown"),
                             link,
-                            context.current_page_path.unwrap_or("unknown")
                         ))
                     }
                     config::LinkCheckerLevel::WarnLevel => {
                         eprintln!(
-                            "{}Relative link {} not found. In page: {}",
+                            "{}Dead relative link in {} to {}",
                             config::LinkCheckerLevel::WarnLevel.log_prefix(),
+                            context.current_page_path.unwrap_or("unknown"),
                             link,
-                            context.current_page_path.unwrap_or("unknown")
                         );
                         link.to_string() // TODO this is probably not correct, what href should be rendered to HTML when relative links are invalid but we're in warn mode?
                     }
