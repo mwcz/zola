@@ -120,7 +120,24 @@ fn fix_link(
                 resolved.permalink
             }
             Err(_) => {
-                return Err(anyhow!("Relative link {} not found.", link));
+                match context.config.link_checker.internal_level {
+                    config::LinkCheckerLevel::ErrorLevel => {
+                        return Err(anyhow!(
+                            "Relative link {} not found. In page: {}",
+                            link,
+                            context.current_page_path.unwrap_or("unknown")
+                        ))
+                    }
+                    config::LinkCheckerLevel::WarnLevel => {
+                        eprintln!(
+                            "{}Relative link {} not found. In page: {}",
+                            config::LinkCheckerLevel::WarnLevel.log_prefix(),
+                            link,
+                            context.current_page_path.unwrap_or("unknown")
+                        );
+                        link.to_string() // TODO this is probably not correct, what href should be rendered to HTML when relative links are invalid but we're in warn mode?
+                    }
+                }
             }
         }
     } else if is_external_link(link) {

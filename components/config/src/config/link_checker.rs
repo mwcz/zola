@@ -15,6 +15,15 @@ impl Default for LinkCheckerLevel {
     }
 }
 
+impl LinkCheckerLevel {
+    pub fn log_prefix(&self) -> &str {
+        match self {
+            LinkCheckerLevel::ErrorLevel => "Error: ",
+            LinkCheckerLevel::WarnLevel => "Warning: ",
+        }
+    }
+}
+
 impl Display for LinkCheckerLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
