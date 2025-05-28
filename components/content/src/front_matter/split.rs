@@ -10,13 +10,13 @@ use crate::front_matter::section::SectionFrontMatter;
 
 static TOML_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"^[[:space:]]*\+\+\+(\r?\n(?s).*?(?-s))\+\+\+[[:space:]]*(?:$|(?:\r?\n((?s).*(?-s))$))",
+        r"^[[:space:]]*\+\+\+(\r?\n(?s).*?(?-s))\n[[:space:]]*\+\+\+[[:space:]]*(?:$|(?:\r?\n((?s).*(?-s))$))",
     )
     .unwrap()
 });
 
 static YAML_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^[[:space:]]*---(\r?\n(?s).*?(?-s))---[[:space:]]*(?:$|(?:\r?\n((?s).*(?-s))$))")
+    Regex::new(r"^[[:space:]]*---(\r?\n(?s).*?(?-s))\n[[:space:]]*---[[:space:]]*(?:$|(?:\r?\n((?s).*(?-s))$))")
         .unwrap()
 });
 
@@ -247,5 +247,30 @@ date: 2002-10-12
     fn errors_if_cannot_locate_frontmatter(content: &str) {
         let res = split_page_content(Path::new(""), content);
         assert!(res.is_err());
+    }
+
+    #[test_case(r#"
++++
+title = "Title"
+description = '''
+hey there +++
+'''
+date = 2002-10-12
++++
+Hello
+"#; "toml")]
+    #[test_case(r#"
+---
+title: Title
+description: |
+  hey there ---
+date: 2002-10-12
+---
+Hello
+"#; "yaml")]
+    fn can_split_page_content_with_frontmatterlike_multiline_literal_valid(content: &str) {
+        let (front_matter, content) = split_page_content(Path::new(""), content).unwrap();
+        assert_eq!(content, "Hello\n");
+        assert_eq!(front_matter.title.unwrap(), "Title");
     }
 }
